@@ -133,6 +133,52 @@
         margin-bottom: 16px;
       }
 
+      .file-picker {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .file-picker-trigger {
+        flex: 1;
+
+        display: flex;
+        align-items: center;
+
+        min-height: 44px;
+
+        padding: 0 12px;
+
+        border: 1px solid var(--border);
+        border-radius: 8px;
+
+        background: var(--surface-2);
+
+        cursor: pointer;
+
+        transition: border-color 0.15s ease;
+        font-weight: 400 !important;
+      }
+
+      .file-picker-trigger:hover {
+        border-color: var(--primary);
+      }
+
+      .file-size {
+        flex-shrink: 0;
+        min-width: 80px;
+        text-align: right;
+        color: var(--muted);
+        font-size: 0.875rem;
+
+        padding: 11px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--surface-2);
+        color: var(--foreground);
+        outline: none;
+      }
+
       /* Form Controls */
 
       label {
@@ -239,6 +285,45 @@
         font-family: "JetBrains Mono", Consolas, monospace;
 
         font-size: 0.9rem;
+      }
+
+      .upload-progress {
+        margin-top: 16px;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      .upload-progress-header,
+      .upload-progress-footer {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-size: 0.875rem;
+      }
+
+      .upload-progress-footer {
+        margin-top: 8px;
+        color: var(--muted);
+      }
+
+      .progress-bar {
+        height: 10px;
+        border-radius: 999px;
+        overflow: hidden;
+
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+      }
+
+      .progress-fill {
+        height: 100%;
+        width: 0%;
+
+        background: var(--primary);
+
+        transition: width 0.15s linear;
       }
 
       /* Object Browser */
@@ -371,7 +456,16 @@
           <input id="objectKey" placeholder="Leave blank to use filename" />
 
           <label for="fileInput">File</label>
-          <input id="fileInput" type="file" />
+
+          <div class="file-picker">
+            <label for="fileInput" class="file-picker-trigger">
+              <span id="selectedFileName">Choose a file...</span>
+            </label>
+
+            <span id="selectedFileSize" class="file-size"> — </span>
+
+            <input id="fileInput" type="file" hidden />
+          </div>
 
           <div class="controls">
             <button id="uploadButton">Upload File</button>
@@ -380,6 +474,22 @@
           <div class="section-output">
             <strong>Upload Result</strong>
             <pre id="uploadResult">No uploads yet.</pre>
+          </div>
+
+          <div id="uploadProgressContainer" class="upload-progress hidden">
+            <div class="upload-progress-header">
+              <span id="uploadFileName">-</span>
+              <span id="uploadPercent">0%</span>
+            </div>
+
+            <div class="progress-bar">
+              <div id="uploadProgressBar" class="progress-fill"></div>
+            </div>
+
+            <div class="upload-progress-footer">
+              <span id="uploadTransferred">0 B / 0 B</span>
+              <span id="uploadSpeed">0 B/s</span>
+            </div>
           </div>
         </section>
       </div>
@@ -435,6 +545,61 @@
       const objectsTableBody = document.getElementById("objectsTableBody");
       const objectResult = document.getElementById("objectResult");
 
+      const selectedFileName = document.getElementById("selectedFileName");
+      const selectedFileSize = document.getElementById("selectedFileSize");
+
+      const uploadProgressContainer = document.getElementById(
+        "uploadProgressContainer",
+      );
+      const uploadFileName = document.getElementById("uploadFileName");
+      const uploadPercent = document.getElementById("uploadPercent");
+      const uploadTransferred = document.getElementById("uploadTransferred");
+      const uploadSpeed = document.getElementById("uploadSpeed");
+      const uploadProgressBar = document.getElementById("uploadProgressBar");
+
+      function formatBytes(bytes) {
+        const units = ["B", "KB", "MB", "GB", "TB"];
+
+        let size = bytes;
+        let unit = 0;
+
+        while (size >= 1024 && unit < units.length - 1) {
+          size /= 1024;
+          unit++;
+        }
+
+        return `${size.toFixed(2)} ${units[unit]}`;
+      }
+
+      function formatFileSize(bytes) {
+        if (bytes < 1024) {
+          return `${bytes} B`;
+        }
+
+        if (bytes < 1024 * 1024) {
+          return `${(bytes / 1024).toFixed(2)} KB`;
+        }
+
+        if (bytes < 1024 * 1024 * 1024) {
+          return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+        }
+
+        return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+      }
+
+      fileInput.addEventListener("change", () => {
+        const file = fileInput.files?.[0];
+
+        if (!file) {
+          selectedFileName.textContent = "Choose a file...";
+          selectedFileSize.textContent = "—";
+          return;
+        }
+
+        selectedFileName.textContent = file.name;
+        selectedFileSize.textContent = formatFileSize(file.size);
+      });
+
       async function apiFetch(path, options = {}) {
         const resp = await fetch(path, options);
         const data = await resp.json().catch(() => ({}));
@@ -475,48 +640,168 @@
         const bucket = uploadBucket.value.trim();
         const file = fileInput.files[0];
         const key = objectKey.value.trim();
+
         if (!bucket || !file) {
           uploadResult.textContent = "Bucket and file are required.";
           return;
         }
 
+        uploadProgressContainer.classList.remove("hidden");
+
+        uploadFileName.textContent = file.name;
+        uploadPercent.textContent = "0%";
+        uploadTransferred.textContent = `0 B / ${formatBytes(file.size)}`;
+        uploadSpeed.textContent = "0 B/s";
+        uploadProgressBar.style.width = "0%";
+
         const formData = new FormData();
+        // Generate a client-side uploadId to allow polling server-side multipart progress
+        const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        formData.append("uploadId", uploadId);
         formData.append("file", file);
-        if (key) formData.append("key", key);
+
+        if (key) {
+          formData.append("key", key);
+        }
 
         const startTime = performance.now();
-        
-        // Start real-time counter
-        const timerInterval = setInterval(() => {
-          const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
-          uploadResult.textContent = `Uploading... (${elapsed}s)`;
-        }, 100);
 
-        try {
-          const resp = await fetch(
+        // start polling server-side upload status
+        let pollInterval = null;
+        let serverPercent = null;
+        const startPolling = () => {
+          pollInterval = setInterval(async () => {
+            try {
+              const resp = await fetch(
+                `/api/upload-status?uploadId=${encodeURIComponent(uploadId)}`,
+              );
+              const status = await resp.json().catch(() => ({}));
+              if (status && status.total) {
+                serverPercent =
+                  status.percent ??
+                  (status.total
+                    ? Math.round((status.loaded / status.total) * 100)
+                    : null);
+
+                const percentToShow = serverPercent ?? 0;
+                uploadPercent.textContent = `${percentToShow}%`;
+                uploadTransferred.textContent = `${formatBytes(status.loaded)} / ${formatBytes(status.total)}`;
+                uploadProgressBar.style.width = `${percentToShow}%`;
+                
+                if (
+                  status.state === "done" ||
+                  (serverPercent !== null && serverPercent >= 100)
+                ) {
+                  clearInterval(pollInterval);
+                  pollInterval = null;
+                }
+              }
+            } catch (e) {
+              // ignore polling errors
+            }
+          }, 500);
+        };
+
+        startPolling();
+
+        return new Promise((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+
+          xhr.upload.onprogress = (event) => {
+            if (!event.lengthComputable) {
+              return;
+            }
+
+            const elapsed = (performance.now() - startTime) / 1000;
+
+            const uploaded = event.loaded;
+            const total = event.total;
+
+            const percent = Math.round((uploaded / total) * 100);
+
+            const speed = elapsed > 0 ? uploaded / elapsed : 0;
+
+            // Always update transferred bytes and speed from client-side progress
+            uploadTransferred.textContent = `${formatBytes(uploaded)} / ${formatBytes(total)}`;
+            uploadSpeed.textContent = `${formatBytes(speed)}/s`;
+
+            // Prefer server-reported percent if available, otherwise show client percent
+            const percentToShow =
+              serverPercent !== null ? serverPercent : percent;
+            uploadPercent.textContent = `${percentToShow}%`;
+            uploadProgressBar.style.width = `${percentToShow}%`;
+          };
+
+          xhr.onload = async () => {
+            try {
+              const data = JSON.parse(xhr.responseText);
+
+              if (xhr.status < 200 || xhr.status >= 300) {
+                throw new Error(data.error || "Upload failed");
+              }
+
+              // ensure we stop polling
+              if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+              }
+
+              const duration = ((performance.now() - startTime) / 1000).toFixed(
+                2,
+              );
+
+              const message = `${data.message} (${duration}s)`;
+
+              uploadResult.textContent = message;
+              objectResult.textContent = message;
+
+              uploadPercent.textContent = "100%";
+              uploadProgressBar.style.width = "100%";
+
+              await refreshObjects();
+
+              // hide the progress UI after a short delay
+              setTimeout(
+                () => uploadProgressContainer.classList.add("hidden"),
+                1500,
+              );
+
+              resolve();
+            } catch (err) {
+              uploadResult.textContent = `Error: ${err.message}`;
+              if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+              }
+
+              // hide progress UI after error as well
+              setTimeout(
+                () => uploadProgressContainer.classList.add("hidden"),
+                1500,
+              );
+
+              reject(err);
+            }
+          };
+
+          xhr.onerror = () => {
+            uploadResult.textContent = "Network error";
+
+            if (pollInterval) {
+              clearInterval(pollInterval);
+              pollInterval = null;
+            }
+
+            reject();
+          };
+
+          xhr.open(
+            "POST",
             `/api/buckets/${encodeURIComponent(bucket)}/objects`,
-            {
-              method: "POST",
-              body: formData,
-            },
           );
-          clearInterval(timerInterval);
-          const data = await resp.json();
-          if (!resp.ok) throw new Error(data.error || resp.statusText);
-          
-          const endTime = performance.now();
-          const duration = ((endTime - startTime) / 1000).toFixed(2);
-          const resultText = `${data.message} (Upload took ${duration}s)`;
-          
-          uploadResult.textContent = resultText;
-          objectResult.textContent = resultText;
-          await refreshObjects();
-        } catch (err) {
-          clearInterval(timerInterval);
-          const endTime = performance.now();
-          const duration = ((endTime - startTime) / 1000).toFixed(2);
-          uploadResult.textContent = `Error: ${err.message} (Failed after ${duration}s)`;
-        }
+
+          xhr.send(formData);
+        });
       }
 
       async function refreshObjects() {
@@ -532,7 +817,7 @@
           objectsTableBody.innerHTML = data.objects
             .map((obj) => {
               const key = obj.Key;
-              const sizeKb = obj.Size ? (obj.Size / 1024).toFixed(2) : "0";
+              const sizeFile = formatBytes(obj.Size);
 
               const objectUrl = `/api/buckets/${encodeURIComponent(bucket)}/object?key=${encodeURIComponent(key)}`;
 
@@ -558,7 +843,7 @@
                         }
                     </td>
                     <td>${key}</td>
-                    <td>${sizeKb} KB</td>
+                    <td>${sizeFile}</td>
                     <td>
                         <a href="${objectUrl}" target="_blank">
                         Download
