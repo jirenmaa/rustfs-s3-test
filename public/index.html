@@ -484,6 +484,14 @@
         formData.append("file", file);
         if (key) formData.append("key", key);
 
+        const startTime = performance.now();
+        
+        // Start real-time counter
+        const timerInterval = setInterval(() => {
+          const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
+          uploadResult.textContent = `Uploading... (${elapsed}s)`;
+        }, 100);
+
         try {
           const resp = await fetch(
             `/api/buckets/${encodeURIComponent(bucket)}/objects`,
@@ -492,13 +500,22 @@
               body: formData,
             },
           );
+          clearInterval(timerInterval);
           const data = await resp.json();
           if (!resp.ok) throw new Error(data.error || resp.statusText);
-          uploadResult.textContent = data.message;
-          objectResult.textContent = data.message;
+          
+          const endTime = performance.now();
+          const duration = ((endTime - startTime) / 1000).toFixed(2);
+          const resultText = `${data.message} (Upload took ${duration}s)`;
+          
+          uploadResult.textContent = resultText;
+          objectResult.textContent = resultText;
           await refreshObjects();
         } catch (err) {
-          uploadResult.textContent = "Error: " + err.message;
+          clearInterval(timerInterval);
+          const endTime = performance.now();
+          const duration = ((endTime - startTime) / 1000).toFixed(2);
+          uploadResult.textContent = `Error: ${err.message} (Failed after ${duration}s)`;
         }
       }
 
