@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" style="background:#f4f6fb">
+  <rect width="640" height="360" rx="24" fill="#ffffff" stroke="#d1d5db" stroke-width="2" />
+  <rect x="40" y="40" width="560" height="100" rx="14" fill="#2563eb" />
+  <text x="320" y="80" text-anchor="middle" fill="#ffffff" font-family="Arial, sans-serif" font-size="24">RustFS S3 Test UI</text>
+  <rect x="40" y="160" width="216" height="28" rx="8" fill="#e5e7eb" />
+  <rect x="40" y="206" width="216" height="28" rx="8" fill="#e5e7eb" />
+  <rect x="40" y="252" width="216" height="28" rx="8" fill="#e5e7eb" />
+  <rect x="292" y="160" width="264" height="120" rx="14" fill="#f3f4f6" />
+  <circle cx="344" cy="208" r="18" fill="#34d399" />
+  <circle cx="400" cy="208" r="18" fill="#fbbf24" />
+  <circle cx="456" cy="208" r="18" fill="#60a5fa" />
+  <text x="344" y="246" text-anchor="middle" fill="#111827" font-family="Arial, sans-serif" font-size="14">Upload</text>
+  <text x="400" y="246" text-anchor="middle" fill="#111827" font-family="Arial, sans-serif" font-size="14">List</text>
+  <text x="456" y="246" text-anchor="middle" fill="#111827" font-family="Arial, sans-serif" font-size="14">Download</text>
+  <text x="320" y="328" text-anchor="middle" fill="#6b7280" font-family="Arial, sans-serif" font-size="12">Local RustFS S3 experimentation</text>
+</svg>
