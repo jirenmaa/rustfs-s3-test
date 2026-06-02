@@ -1,56 +1,154 @@
+import express from "express";
+import multer from "multer";
+import path from "path";
+import { fileURLToPath } from "url";
+import { pipeline } from "stream/promises";
 import {
   S3Client,
   CreateBucketCommand,
-  PutObjectCommand,
+  ListBucketsCommand,
   ListObjectsV2Command,
+  PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
-import fs from "fs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const upload = multer({ storage: multer.memoryStorage() });
+const PORT = process.env.PORT || 3000;
+
+const S3_ENDPOINT = process.env.S3_ENDPOINT || "http://localhost:9000";
+const S3_REGION = process.env.S3_REGION || "us-east-1";
+const DEFAULT_BUCKET = process.env.S3_BUCKET || "rustfs-test-bucket";
+const ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID || "RF_jmgQyUU6kaNNiDKM3VTBteVE";
+const SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY || "hCjS+QaJNmUV22QFNVsm2PQPaO8RWoYDYip35noETRg=";
 
 const s3 = new S3Client({
-  endpoint: "http://localhost:9000",
-  region: "us-east-1",
+  endpoint: S3_ENDPOINT,
+  region: S3_REGION,
   credentials: {
-    accessKeyId: "RF_jmgQyUU6kaNNiDKM3VTBteVE",
-    secretAccessKey: "hCjS+QaJNmUV22QFNVsm2PQPaO8RWoYDYip35noETRg=",
+    accessKeyId: ACCESS_KEY_ID,
+    secretAccessKey: SECRET_ACCESS_KEY,
   },
-  forcePathStyle: true, // for S3-compatible storage
+  forcePathStyle: true,
 });
 
-const BUCKET = "sdk-test-bucket";
-const FILE_KEY = "hello.txt";
+app.use(express.json());
+app.use(express.static(path.join(__dirname, "public")));
 
-async function run() {
-  await s3.send(new CreateBucketCommand({ Bucket: BUCKET }));
-  console.log("Bucket created");
-
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: FILE_KEY,
-      Body: "Hello from RustFS",
-      ContentType: "text/plain",
-    })
-  );
-  console.log("Object uploaded");
-
-  // List objects
-  const list = await s3.send(
-    new ListObjectsV2Command({ Bucket: BUCKET })
-  );
-  console.log("Objects:", list.Contents?.map(o => o.Key));
-
-  // Download object
-  const data = await s3.send(
-    new GetObjectCommand({ Bucket: BUCKET, Key: FILE_KEY })
-  );
-
-  const body = await data.Body.transformToString();
-  console.log("Downloaded content:", body);
+async function ensureBucketExists(bucketName) {
+  try {
+    await s3.send(new CreateBucketCommand({ Bucket: bucketName }));
+  } catch (error) {
+    const code = error?.$metadata?.httpStatusCode === 409 ? "BucketAlreadyExists" : error?.Code || error?.name || "";
+    const message = error?.message || "";
+    const isBucketExists = code === "BucketAlreadyExists" || 
+                          code === "BucketAlreadyOwnedByYou" ||
+                          message.includes("already own") ||
+                          message.includes("BucketAlreadyOwnedByYou") ||
+                          message.includes("BucketAlreadyExists");
+    if (!isBucketExists) {
+      throw error;
+    }
+  }
 }
 
-run().catch(err => {
-  console.error("Test failed:", err);
-  process.exit(1);
+app.get("/api/buckets", async (req, res) => {
+  try {
+    const result = await s3.send(new ListBucketsCommand({}));
+    res.json({ buckets: result.Buckets || [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message || String(error) });
+  }
+});
+
+app.post("/api/buckets", async (req, res) => {
+  const bucket = req.body.Bucket || DEFAULT_BUCKET;
+  try {
+    await ensureBucketExists(bucket);
+    res.json({ message: `Bucket '${bucket}' is ready.` });
+  } catch (error) {
+    res.status(500).json({ error: error.message || String(error) });
+  }
+});
+
+app.get("/api/buckets/:bucket/objects", async (req, res) => {
+  const bucket = req.params.bucket;
+  try {
+    const result = await s3.send(new ListObjectsV2Command({ Bucket: bucket }));
+    res.json({ objects: result.Contents || [] });
+  } catch (error) {
+    res.status(500).json({ error: error.message || String(error) });
+  }
+});
+
+app.post("/api/buckets/:bucket/objects", upload.single("file"), async (req, res) => {
+  const bucket = req.params.bucket;
+  const file = req.file;
+  const key = req.body.key || file?.originalname;
+
+  if (!file || !key) {
+    return res.status(400).json({ error: "File and key are required." });
+  }
+
+  try {
+    await ensureBucketExists(bucket);
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: file.buffer,
+        ContentType: file.mimetype || "application/octet-stream",
+      })
+    );
+    res.json({ message: `Uploaded '${key}' to '${bucket}'.` });
+  } catch (error) {
+    res.status(500).json({ error: error.message || String(error) });
+  }
+});
+
+app.get("/api/buckets/:bucket/object", async (req, res) => {
+  const bucket = req.params.bucket;
+  const key = req.query.key;
+  if (!key) {
+    return res.status(400).json({ error: "Missing object key." });
+  }
+
+  try {
+    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    res.setHeader("Content-Type", object.ContentType || "application/octet-stream");
+    res.setHeader("Content-Disposition", `attachment; filename="${path.basename(key)}"`);
+    await pipeline(object.Body, res);
+  } catch (error) {
+    res.status(500).json({ error: error.message || String(error) });
+  }
+});
+
+app.delete("/api/buckets/:bucket/object", async (req, res) => {
+  const bucket = req.params.bucket;
+  const key = req.query.key;
+  if (!key) {
+    return res.status(400).json({ error: "Missing object key." });
+  }
+
+  try {
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    res.json({ message: `Deleted '${key}' from '${bucket}'.` });
+  } catch (error) {
+    res.status(500).json({ error: error.message || String(error) });
+  }
+});
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/index.html"));
+});
+
+app.listen(PORT, () => {
+  console.log(`S3-compatible UI server running at http://localhost:${PORT}`);
+  console.log(`Using S3 endpoint: ${S3_ENDPOINT}`);
+  console.log(`Default bucket: ${DEFAULT_BUCKET}`);
 });
 

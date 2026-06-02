@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RustFS S3 Test UI</title>
+    <style>
+      :root {
+        --background: #0b1017;
+        --surface: #131b26;
+        --surface-hover: #192333;
+        --surface-2: #0f1722;
+
+        --foreground: #f1f5f9;
+        --muted: #94a3b8;
+
+        --border: #273244;
+
+        --primary: #3b82f6;
+        --primary-hover: #2563eb;
+
+        --secondary: rgba(255, 255, 255, 0.035);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        color: var(--foreground);
+        background: var(--background);
+        font-family:
+          Inter,
+          Segoe UI,
+          system-ui,
+          sans-serif;
+        position: relative;
+      }
+
+      /* Background Pattern */
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -2;
+
+        background-color: var(--background);
+
+        background-image: repeating-linear-gradient(
+          -45deg,
+          var(--secondary) 0,
+          var(--secondary) 1px,
+          transparent 1px,
+          transparent 14px
+        );
+      }
+
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+
+        background: radial-gradient(
+          circle at top center,
+          rgba(59, 130, 246, 0.08),
+          transparent 45%
+        );
+      }
+
+      /* Layout */
+
+      main {
+        max-width: 1400px;
+        padding: 24px;
+      }
+
+      .header {
+        margin-bottom: 24px;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 700;
+      }
+
+      .header p {
+        margin-top: 8px;
+        color: var(--muted);
+      }
+
+      .dashboard-grid {
+        display: grid;
+        gap: 20px;
+        grid-template-columns: 1fr 1fr;
+        margin-bottom: 20px;
+      }
+
+      @media (max-width: 900px) {
+        .dashboard-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      /* Cards */
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+
+        border-radius: 14px;
+        padding: 20px;
+
+        box-shadow:
+          0 0 0 1px rgba(255, 255, 255, 0.02),
+          0 10px 30px rgba(0, 0, 0, 0.35);
+      }
+
+      .card-large {
+        margin-top: 0;
+      }
+
+      .card h2 {
+        margin-top: 0;
+        margin-bottom: 16px;
+      }
+
+      /* Form Controls */
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        margin-top: 12px;
+
+        font-weight: 600;
+        color: #dbe3ef;
+      }
+
+      input,
+      select {
+        width: 100%;
+
+        padding: 11px 12px;
+
+        border-radius: 8px;
+        border: 1px solid var(--border);
+
+        background: var(--surface-2);
+        color: var(--foreground);
+
+        outline: none;
+      }
+
+      input:focus,
+      select:focus {
+        border-color: var(--primary);
+
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+      }
+
+      /* Buttons */
+
+      button {
+        border: none;
+        border-radius: 8px;
+
+        padding: 11px 16px;
+
+        background: var(--primary);
+        color: white;
+
+        cursor: pointer;
+        font-weight: 600;
+
+        transition:
+          background 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      button:hover {
+        background: var(--primary-hover);
+      }
+
+      button:active {
+        transform: translateY(1px);
+      }
+
+      button.secondary {
+        background: #334155;
+      }
+
+      button.secondary:hover {
+        background: #475569;
+      }
+
+      button.small {
+        width: auto;
+        padding: 6px 10px;
+        font-size: 0.85rem;
+      }
+
+      /* Controls */
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+        flex-wrap: wrap;
+      }
+
+      /* Output */
+
+      .section-output {
+        margin-top: 18px;
+      }
+
+      pre {
+        margin-top: 8px;
+
+        padding: 14px;
+
+        background: #0b1220;
+
+        border: 1px solid var(--border);
+        border-radius: 10px;
+
+        overflow-x: auto;
+
+        color: #cbd5e1;
+
+        font-family: "JetBrains Mono", Consolas, monospace;
+
+        font-size: 0.9rem;
+      }
+
+      /* Object Browser */
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .object-toolbar {
+        display: flex;
+        gap: 10px;
+        min-width: 420px;
+      }
+
+      .object-toolbar input {
+        flex: 1;
+      }
+
+      .table-wrapper {
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      thead {
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      th,
+      td {
+        padding: 14px;
+        text-align: left;
+        border-bottom: 1px solid var(--border);
+      }
+
+      th {
+        color: #dbe3ef;
+      }
+
+      tbody tr:hover {
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .object-preview {
+        width: 64px;
+        height: 64px;
+
+        object-fit: cover;
+
+        border-radius: 8px;
+        border: 1px solid var(--border);
+
+        background: var(--surface-2);
+      }
+
+      .object-preview-placeholder {
+        width: 64px;
+        height: 64px;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        border-radius: 8px;
+
+        background: var(--surface-2);
+        border: 1px solid var(--border);
+
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      /* Links */
+
+      a {
+        color: #60a5fa;
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="header">
+        <h1>RustFS S3 Browser</h1>
+        <p>
+          Upload, list, download and manage objects through your RustFS
+          S3-compatible endpoint.
+        </p>
+      </div>
+
+      <div class="dashboard-grid">
+        <section class="card">
+          <h2>Bucket Controls</h2>
+
+          <label for="bucketName">Bucket Name</label>
+          <input id="bucketName" value="rustfs-test-bucket" />
+
+          <div class="controls">
+            <button id="createBucket">Ensure Bucket Exists</button>
+            <button class="secondary" id="refreshBuckets">
+              Refresh Buckets
+            </button>
+          </div>
+
+          <div class="section-output">
+            <strong>Available Buckets</strong>
+            <pre id="bucketsList">Loading...</pre>
+          </div>
+        </section>
+
+        <section class="card">
+          <h2>Upload Object</h2>
+
+          <label for="uploadBucket">Bucket</label>
+          <input id="uploadBucket" value="rustfs-test-bucket" />
+
+          <label for="objectKey">Object Key</label>
+          <input id="objectKey" placeholder="Leave blank to use filename" />
+
+          <label for="fileInput">File</label>
+          <input id="fileInput" type="file" />
+
+          <div class="controls">
+            <button id="uploadButton">Upload File</button>
+          </div>
+
+          <div class="section-output">
+            <strong>Upload Result</strong>
+            <pre id="uploadResult">No uploads yet.</pre>
+          </div>
+        </section>
+      </div>
+
+      <section class="card card-large">
+        <div class="section-header">
+          <h2>Object Browser</h2>
+
+          <div class="object-toolbar">
+            <input
+              id="listBucket"
+              value="rustfs-test-bucket"
+              placeholder="Bucket Name"
+            />
+
+            <button id="refreshObjects">Refresh Objects</button>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Preview</th>
+                <th>Object Key</th>
+                <th>Size</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="objectsTableBody"></tbody>
+          </table>
+        </div>
+
+        <div class="section-output">
+          <strong>Last Operation</strong>
+          <pre id="objectResult">No operations yet.</pre>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const bucketNameInput = document.getElementById("bucketName");
+      const createBucketBtn = document.getElementById("createBucket");
+      const refreshBucketsBtn = document.getElementById("refreshBuckets");
+      const bucketsList = document.getElementById("bucketsList");
+      const uploadBucket = document.getElementById("uploadBucket");
+      const objectKey = document.getElementById("objectKey");
+      const fileInput = document.getElementById("fileInput");
+      const uploadButton = document.getElementById("uploadButton");
+      const uploadResult = document.getElementById("uploadResult");
+      const listBucket = document.getElementById("listBucket");
+      const refreshObjectsBtn = document.getElementById("refreshObjects");
+      const objectsTableBody = document.getElementById("objectsTableBody");
+      const objectResult = document.getElementById("objectResult");
+
+      async function apiFetch(path, options = {}) {
+        const resp = await fetch(path, options);
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok)
+          throw new Error(data.error || resp.statusText || "Request failed");
+        return data;
+      }
+
+      async function refreshBuckets() {
+        try {
+          const data = await apiFetch("/api/buckets");
+          bucketsList.textContent =
+            data.buckets.map((b) => b.Name).join("\n") || "No buckets yet.";
+        } catch (err) {
+          bucketsList.textContent = "Error: " + err.message;
+        }
+      }
+
+      async function ensureBucket() {
+        const bucket = bucketNameInput.value.trim();
+        if (!bucket) return;
+        try {
+          const data = await apiFetch("/api/buckets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ Bucket: bucket }),
+          });
+          uploadBucket.value = bucket;
+          listBucket.value = bucket;
+          objectResult.textContent = data.message;
+          await refreshBuckets();
+        } catch (err) {
+          objectResult.textContent = "Error: " + err.message;
+        }
+      }
+
+      async function uploadFile() {
+        const bucket = uploadBucket.value.trim();
+        const file = fileInput.files[0];
+        const key = objectKey.value.trim();
+        if (!bucket || !file) {
+          uploadResult.textContent = "Bucket and file are required.";
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+        if (key) formData.append("key", key);
+
+        try {
+          const resp = await fetch(
+            `/api/buckets/${encodeURIComponent(bucket)}/objects`,
+            {
+              method: "POST",
+              body: formData,
+            },
+          );
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.error || resp.statusText);
+          uploadResult.textContent = data.message;
+          objectResult.textContent = data.message;
+          await refreshObjects();
+        } catch (err) {
+          uploadResult.textContent = "Error: " + err.message;
+        }
+      }
+
+      async function refreshObjects() {
+        const bucket = listBucket.value.trim();
+        if (!bucket) {
+          objectResult.textContent = "Bucket is required to list objects.";
+          return;
+        }
+        try {
+          const data = await apiFetch(
+            `/api/buckets/${encodeURIComponent(bucket)}/objects`,
+          );
+          objectsTableBody.innerHTML = data.objects
+            .map((obj) => {
+              const key = obj.Key;
+              const sizeKb = obj.Size ? (obj.Size / 1024).toFixed(2) : "0";
+
+              const objectUrl = `/api/buckets/${encodeURIComponent(bucket)}/object?key=${encodeURIComponent(key)}`;
+
+              const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(key);
+
+              return `
+                <tr>
+                    <td>
+                        ${
+                          isImage
+                            ? `
+                            <img
+                                src="${objectUrl}"
+                                alt="${key}"
+                                class="object-preview"
+                                loading="lazy"
+                            />`
+                            : `
+                            <div class="object-preview-placeholder">
+                                FILE
+                            </div>
+                            `
+                        }
+                    </td>
+                    <td>${key}</td>
+                    <td>${sizeKb} KB</td>
+                    <td>
+                        <a href="${objectUrl}" target="_blank">
+                        Download
+                        </a>
+                        <button class="small" data-key="${encodeURIComponent(key)}">
+                        Delete
+                        </button>
+                    </td>
+                </tr>
+            `;
+            })
+            .join("");
+          if (!data.objects.length) {
+            objectsTableBody.innerHTML = `<tr><td colspan="3">No objects found.</td></tr>`;
+          }
+          objectResult.textContent = `Listed ${data.objects.length} objects from ${bucket}.`;
+        } catch (err) {
+          objectsTableBody.innerHTML = `<tr><td colspan="3">Error: ${err.message}</td></tr>`;
+        }
+      }
+
+      objectsTableBody.addEventListener("click", async (event) => {
+        if (event.target.matches("button[data-key]")) {
+          const bucket = listBucket.value.trim();
+          const key = decodeURIComponent(event.target.dataset.key);
+          if (!bucket || !key) return;
+          if (!confirm(`Delete object '${key}' from bucket '${bucket}'?`))
+            return;
+          try {
+            const data = await apiFetch(
+              `/api/buckets/${encodeURIComponent(bucket)}/object?key=${encodeURIComponent(key)}`,
+              { method: "DELETE" },
+            );
+            objectResult.textContent = data.message;
+            await refreshObjects();
+          } catch (err) {
+            objectResult.textContent = "Error: " + err.message;
+          }
+        }
+      });
+
+      createBucketBtn.addEventListener("click", ensureBucket);
+      refreshBucketsBtn.addEventListener("click", refreshBuckets);
+      uploadButton.addEventListener("click", uploadFile);
+      refreshObjectsBtn.addEventListener("click", refreshObjects);
+
+      refreshBuckets();
+      refreshObjects();
+    </script>
+  </body>
+</html>
