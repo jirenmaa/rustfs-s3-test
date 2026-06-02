@@ -3,21 +3,27 @@ import multer from "multer";
 import path from "path";
 import { fileURLToPath } from "url";
 import { pipeline } from "stream/promises";
+import fs from "fs";
+import { createReadStream } from "fs";
 import {
   S3Client,
   CreateBucketCommand,
   ListBucketsCommand,
   ListObjectsV2Command,
-  PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
+import { Upload } from "@aws-sdk/lib-storage";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage() });
+const tempDir = path.join(__dirname, ".temp");
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
+const upload = multer({ storage: multer.diskStorage({ destination: tempDir, filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`) }) });
 const PORT = process.env.PORT || 3000;
 
 const S3_ENDPOINT = process.env.S3_ENDPOINT || "http://localhost:9000";
@@ -91,21 +97,29 @@ app.post("/api/buckets/:bucket/objects", upload.single("file"), async (req, res)
   const key = req.body.key || file?.originalname;
 
   if (!file || !key) {
+    if (file?.path) fs.unlink(file.path, () => {});
     return res.status(400).json({ error: "File and key are required." });
   }
 
   try {
     await ensureBucketExists(bucket);
-    await s3.send(
-      new PutObjectCommand({
+    const fileStream = createReadStream(file.path);
+    const upload = new Upload({
+      client: s3,
+      params: {
         Bucket: bucket,
         Key: key,
-        Body: file.buffer,
+        Body: fileStream,
         ContentType: file.mimetype || "application/octet-stream",
-      })
-    );
+      },
+      partSize: 16 * 1024 * 1024, // 16MB chunks
+      leavePartsOnError: false,
+    });
+    await upload.done();
+    fs.unlink(file.path, () => {});
     res.json({ message: `Uploaded '${key}' to '${bucket}'.` });
   } catch (error) {
+    if (file?.path) fs.unlink(file.path, () => {});
     res.status(500).json({ error: error.message || String(error) });
   }
 });
@@ -146,9 +160,16 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public/index.html"));
 });
 
+process.on("exit", () => {
+  if (fs.existsSync(tempDir)) {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`S3-compatible UI server running at http://localhost:${PORT}`);
   console.log(`Using S3 endpoint: ${S3_ENDPOINT}`);
   console.log(`Default bucket: ${DEFAULT_BUCKET}`);
+  console.log(`Temp directory: ${tempDir}`);
 });
 
